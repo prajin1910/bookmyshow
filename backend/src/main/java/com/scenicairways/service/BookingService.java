@@ -1,5 +1,6 @@
 package com.scenicairways.service;
 
+import com.scenicairways.dto.BookingRequest;
 import com.scenicairways.model.Booking;
 import com.scenicairways.model.Flight;
 import com.scenicairways.repository.BookingRepository;
@@ -7,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -26,6 +28,9 @@ public class BookingService {
     @Autowired
     private EmailService emailService;
 
+    @Autowired
+    private PDFService pdfService;
+
     public List<Booking> getAllBookings() {
         return bookingRepository.findAll();
     }
@@ -38,7 +43,27 @@ public class BookingService {
         return bookingRepository.findById(id);
     }
 
-    public Booking createBooking(Booking booking) {
+    public Booking createBooking(BookingRequest bookingRequest, String userId) {
+        Booking booking = new Booking();
+        booking.setUserId(userId);
+        booking.setFlightId(bookingRequest.getFlightId());
+        booking.setSeats(bookingRequest.getSeats());
+        booking.setTotalPrice(bookingRequest.getTotalPrice());
+        booking.setContactEmail(bookingRequest.getContactEmail());
+        booking.setContactPhone(bookingRequest.getContactPhone());
+        
+        // Convert passenger details
+        List<Booking.PassengerDetail> passengerDetails = new ArrayList<>();
+        for (BookingRequest.PassengerDetailRequest req : bookingRequest.getPassengerDetails()) {
+            Booking.PassengerDetail detail = new Booking.PassengerDetail();
+            detail.setName(req.getName());
+            detail.setAge(req.getAge());
+            detail.setGender(req.getGender());
+            detail.setSeatNumber(req.getSeatNumber());
+            passengerDetails.add(detail);
+        }
+        booking.setPassengerDetails(passengerDetails);
+        
         // Generate unique booking ID
         booking.setId(generateBookingId());
         
@@ -78,6 +103,15 @@ public class BookingService {
             return updatedBooking;
         }
         return null;
+    }
+
+    public boolean isBookingOwner(String bookingId, String userId) {
+        Optional<Booking> booking = bookingRepository.findById(bookingId);
+        return booking.isPresent() && booking.get().getUserId().equals(userId);
+    }
+
+    public byte[] generateTicketPdf(Booking booking) {
+        return pdfService.generateTicketPdf(booking);
     }
 
     public boolean cancelBooking(String bookingId) {

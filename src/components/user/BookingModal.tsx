@@ -11,7 +11,7 @@ interface BookingModalProps {
   flight: Flight;
   selectedSeats: string[];
   totalPrice: number;
-  onConfirm: (passengerDetails: PassengerDetail[]) => void;
+  onConfirm: (passengerDetails: PassengerDetail[], contactInfo: { email: string; phone: string }) => void;
 }
 
 export const BookingModal: React.FC<BookingModalProps> = ({
@@ -30,6 +30,11 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       seatNumber: getSeatNumber(seatId),
     }))
   );
+  
+  const [contactInfo, setContactInfo] = useState({
+    email: '',
+    phone: '',
+  });
   
   const [loading, setLoading] = useState(false);
 
@@ -51,13 +56,14 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     setLoading(true);
     try {
       await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API call
-      onConfirm(passengerDetails);
+      onConfirm(passengerDetails, contactInfo);
     } finally {
       setLoading(false);
     }
   };
 
-  const isFormValid = passengerDetails.every(p => p.name.trim() && p.age > 0);
+  const isFormValid = passengerDetails.every(p => p.name.trim() && p.age > 0) && 
+                     contactInfo.email.trim() && contactInfo.phone.trim();
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Passenger Details" size="lg">
@@ -148,6 +154,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               label="Email"
               icon={Mail}
               placeholder="booking@example.com"
+              value={contactInfo.email}
+              onChange={(e) => setContactInfo({ ...contactInfo, email: e.target.value })}
               required
             />
             <Input
@@ -155,6 +163,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               label="Phone"
               icon={Phone}
               placeholder="+91 9876543210"
+              value={contactInfo.phone}
+              onChange={(e) => setContactInfo({ ...contactInfo, phone: e.target.value })}
               required
             />
           </div>

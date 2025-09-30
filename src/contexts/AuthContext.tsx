@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { User, AuthState } from '../types';
+import { api } from '../config/api';
 
 interface AuthContextType extends AuthState {
   login: (username: string, password: string) => Promise<void>;
@@ -66,25 +67,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (username: string, password: string): Promise<void> => {
     try {
-      // Mock authentication - replace with actual API call
-      if ((username === 'trilogy' && password === 'admin@flights') || username === 'user') {
-        const user: User = {
-          id: username === 'trilogy' ? 'admin-1' : 'user-1',
-          username,
-          email: username === 'trilogy' ? 'admin@flights.com' : 'user@flights.com',
-          role: username === 'trilogy' ? 'admin' : 'user',
-          createdAt: new Date().toISOString(),
-        };
-        
-        const token = 'mock-jwt-token-' + Math.random();
-        
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
-        
-        dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token } });
-      } else {
+      const response = await api.login({ username, password });
+      
+      if (!response.ok) {
         throw new Error('Invalid credentials');
       }
+      
+      const data = await response.json();
+      
+      const user: User = {
+        id: data.id,
+        username: data.username,
+        email: data.email,
+        role: data.role.toLowerCase() as 'admin' | 'user',
+        createdAt: new Date().toISOString(),
+      };
+      
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(user));
+      
+      dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token: data.token } });
     } catch (error) {
       throw new Error('Login failed');
     }
@@ -92,23 +94,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (username: string, email: string, password: string): Promise<void> => {
     try {
-      // Mock registration - replace with actual API call
+      const response = await api.register({ username, email, password });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Registration failed');
+      }
+      
+      const data = await response.json();
+      
       const user: User = {
-        id: 'user-' + Math.random(),
-        username,
-        email,
-        role: 'user',
+        id: data.id,
+        username: data.username,
+        email: data.email,
+        role: data.role.toLowerCase() as 'admin' | 'user',
         createdAt: new Date().toISOString(),
       };
       
-      const token = 'mock-jwt-token-' + Math.random();
-      
-      localStorage.setItem('token', token);
+      localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(user));
       
-      dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token } });
+      dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token: data.token } });
     } catch (error) {
-      throw new Error('Registration failed');
+      throw error;
     }
   };
 

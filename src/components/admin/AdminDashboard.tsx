@@ -2,49 +2,111 @@ import React, { useState } from 'react';
 import { PlusCircle, Plane, Users, Calendar, TrendingUp, CreditCard as Edit, Trash2, Eye } from 'lucide-react';
 import { Flight, Booking } from '../../types';
 import { FlightForm } from './FlightForm';
-import { mockFlights, mockBookings } from '../../data/mockData';
+import { AIGeneratedDescription } from '../flight/AIGeneratedDescription';
+import { useAuth } from '../../contexts/AuthContext';
+import { api } from '../../config/api';
 import { Card, CardContent, CardHeader } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Modal } from '../ui/Modal';
 
 export const AdminDashboard: React.FC = () => {
+  const { token } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'flights' | 'bookings' | 'analytics'>('overview');
-  const [flights, setFlights] = useState<Flight[]>(mockFlights);
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [showFlightForm, setShowFlightForm] = useState(false);
   const [editingFlight, setEditingFlight] = useState<Flight | null>(null);
   const [showFlightDetails, setShowFlightDetails] = useState<Flight | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const stats = {
-    totalFlights: flights.length,
-    totalBookings: mockBookings.length,
-    totalRevenue: mockBookings.reduce((sum, booking) => sum + booking.totalPrice, 0),
-    averageOccupancy: 75
-  };
+  React.useEffect(() => {
+    if (token) {
+      fetchFlights();
+      fetchBookings();
+    }
+  }, [token]);
 
-  const handleAddFlight = (flightData: Omit<Flight, 'id'>) => {
-    const newFlight: Flight = {
-      ...flightData,
-      id: 'FL' + String(flights.length + 1).padStart(3, '0'),
-    };
-    setFlights([...flights, newFlight]);
-    setShowFlightForm(false);
-  };
-
-  const handleEditFlight = (flightData: Omit<Flight, 'id'>) => {
-    if (editingFlight) {
-      const updatedFlights = flights.map(f => 
-        f.id === editingFlight.id ? { ...flightData, id: editingFlight.id } : f
-      );
-      setFlights(updatedFlights);
-      setEditingFlight(null);
-      setShowFlightForm(false);
+  const fetchFlights = async () => {
+    if (!token) return;
+    
+    try {
+      setLoading(true);
+      const response = await api.getAllFlights(token);
+      if (response.ok) {
+        const flightsData = await response.json();
+        setFlights(flightsData);
+      }
+    } catch (error) {
+      console.error('Error fetching flights:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDeleteFlight = (flightId: string) => {
-    if (confirm('Are you sure you want to delete this flight?')) {
-      setFlights(flights.filter(f => f.id !== flightId));
+  const fetchBookings = async () => {
+    if (!token) return;
+    
+    try {
+      const response = await api.getAllBookings(token);
+      if (response.ok) {
+        const bookingsData = await response.json();
+        setBookings(bookingsData);
+      }
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+    }
+  };
+
+  const stats = {
+    totalFlights: flights.length,
+    totalBookings: bookings.length,
+    totalRevenue: bookings.reduce((sum, booking) => sum + booking.totalPrice, 0),
+    averageOccupancy: 75
+  };
+
+  const handleAddFlight = async (flightData: Omit<Flight, 'id'>) => {
+    if (!token) return;
+    
+    try {
+      const response = await api.createFlight(flightData, token);
+      if (response.ok) {
+        const newFlight = await response.json();
+        setFlights([...flights, newFlight]);
+        setShowFlightForm(false);
+        fetchFlights(); // Refresh the list
+      }
+    } catch (error) {
+      console.error('Error creating flight:', error);
+    }
+  };
+
+  const handleEditFlight = async (flightData: Omit<Flight, 'id'>) => {
+    if (!editingFlight || !token) return;
+    
+    try {
+      const response = await api.updateFlight(editingFlight.id, flightData, token);
+      if (response.ok) {
+        const updatedFlight = await response.json();
+        setFlights(flights.map(f => f.id === editingFlight.id ? updatedFlight : f));
+        setEditingFlight(null);
+        setShowFlightForm(false);
+      }
+    } catch (error) {
+      console.error('Error updating flight:', error);
+    }
+  };
+
+  const handleDeleteFlight = async (flightId: string) => {
+    if (!token || !confirm('Are you sure you want to delete this flight?')) return;
+    
+    try {
+      const response = await api.deleteFlight(flightId, token);
+      if (response.ok) {
+        setFlights(flights.filter(f => f.id !== flightId));
+      }
+    } catch (error) {
+      console.error('Error deleting flight:', error);
     }
   };
 
@@ -209,77 +271,81 @@ export const AdminDashboard: React.FC = () => {
 
           <div className="grid gap-6">
             {flights.map(flight => (
-              <Card key={flight.id} hover>
-                <CardContent className="p-6">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-4 mb-2">
-                        <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
-                          {flight.flightNumber}
-                        </h3>
-                        <Badge variant="info">{flight.aircraft}</Badge>
-                        <Badge 
-                          variant={flight.scenicSide === 'both' ? 'success' : 'default'}
-                        >
-                          Scenic {flight.scenicSide}
-                        </Badge>
+              <div key={flight.id} className="space-y-4">
+                <Card hover>
+                  <CardContent className="p-6">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-4 mb-2">
+                          <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                            {flight.flightNumber}
+                          </h3>
+                          <Badge variant="info">{flight.aircraft}</Badge>
+                          <Badge 
+                            variant={flight.scenicSide === 'both' ? 'success' : 'default'}
+                          >
+                            Scenic {flight.scenicSide}
+                          </Badge>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                          <div>
+                            <p className="font-medium text-gray-900 dark:text-gray-100">Route</p>
+                            <p className="text-gray-600 dark:text-gray-400">
+                              {flight.departure} → {flight.arrival}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900 dark:text-gray-100">Schedule</p>
+                            <p className="text-gray-600 dark:text-gray-400">
+                              {flight.date} | {flight.departureTime} - {flight.arrivalTime}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900 dark:text-gray-100">Occupancy</p>
+                            <p className="text-gray-600 dark:text-gray-400">
+                              {flight.totalSeats - flight.availableSeats}/{flight.totalSeats} booked
+                            </p>
+                          </div>
+                        </div>
                       </div>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-gray-100">Route</p>
-                          <p className="text-gray-600 dark:text-gray-400">
-                            {flight.departure} → {flight.arrival}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-gray-100">Schedule</p>
-                          <p className="text-gray-600 dark:text-gray-400">
-                            {flight.date} | {flight.departureTime} - {flight.arrivalTime}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-gray-100">Occupancy</p>
-                          <p className="text-gray-600 dark:text-gray-400">
-                            {flight.totalSeats - flight.availableSeats}/{flight.totalSeats} booked
-                          </p>
-                        </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={Eye}
+                          onClick={() => setShowFlightDetails(flight)}
+                        >
+                          View
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={Edit}
+                          onClick={() => {
+                            setEditingFlight(flight);
+                            setShowFlightForm(true);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={Trash2}
+                          onClick={() => handleDeleteFlight(flight.id)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          Delete
+                        </Button>
                       </div>
                     </div>
-                    
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={Eye}
-                        onClick={() => setShowFlightDetails(flight)}
-                      >
-                        View
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={Edit}
-                        onClick={() => {
-                          setEditingFlight(flight);
-                          setShowFlightForm(true);
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={Trash2}
-                        onClick={() => handleDeleteFlight(flight.id)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+                
+                <AIGeneratedDescription flight={flight} />
+              </div>
             ))}
           </div>
         </div>
@@ -293,8 +359,12 @@ export const AdminDashboard: React.FC = () => {
           </h2>
           
           <div className="grid gap-6">
-            {mockBookings.map(booking => {
+            {bookings.map(booking => {
               const flight = flights.find(f => f.id === booking.flightId);
+              if (!flight) return null;
+              
+              if (!flight) return null;
+              
               return (
                 <Card key={booking.id} hover>
                   <CardContent className="p-6">

@@ -5,28 +5,61 @@ import { FlightSearch } from './FlightSearch';
 import { FlightCard } from './FlightCard';
 import { SeatMap } from './SeatMap';
 import { BookingModal } from './BookingModal';
-import { mockFlights, mockBookings } from '../../data/mockData';
+import { InteractiveMap } from '../map/InteractiveMap';
+import { QRTicketDownload } from '../booking/QRTicketDownload';
+import { AIGeneratedDescription } from '../flight/AIGeneratedDescription';
 import { useAuth } from '../../contexts/AuthContext';
+import { api } from '../../config/api';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 
 export const UserDashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<'search' | 'bookings'>('search');
   const [searchResults, setSearchResults] = useState<Flight[]>([]);
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
   const [showBookingModal, setShowBookingModal] = useState(false);
-  const [userBookings] = useState<Booking[]>(mockBookings);
+  const [userBookings, setUserBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const handleSearch = (filters: any) => {
-    // Mock search - in real app, this would call an API
-    const results = mockFlights.filter(flight =>
-      flight.departure.toLowerCase().includes(filters.departure.toLowerCase()) &&
-      flight.arrival.toLowerCase().includes(filters.arrival.toLowerCase())
-    );
-    setSearchResults(results);
+  React.useEffect(() => {
+    if (activeTab === 'bookings' && token) {
+      fetchUserBookings();
+    }
+  }, [activeTab, token]);
+
+  const fetchUserBookings = async () => {
+    if (!token) return;
+    
+    try {
+      setLoading(true);
+      const response = await api.getUserBookings(token);
+      if (response.ok) {
+        const bookings = await response.json();
+        setUserBookings(bookings);
+      }
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = async (filters: any) => {
+    try {
+      setLoading(true);
+      const response = await api.searchFlights(filters);
+      if (response.ok) {
+        const flights = await response.json();
+        setSearchResults(flights);
+      }
+    } catch (error) {
+      console.error('Error searching flights:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFlightSelect = (flightId: string) => {
@@ -57,17 +90,47 @@ export const UserDashboard: React.FC = () => {
     }, 0);
   };
 
-  const handleBookingConfirm = (passengerDetails: any[]) => {
-    // In real app, this would call booking API
-    console.log('Booking confirmed:', { selectedFlight, selectedSeats, passengerDetails });
-    
-    // Reset state
-    setSelectedFlight(null);
-    setSelectedSeats([]);
-    setShowBookingModal(false);
-    
-    // Show success message
-    alert('Booking confirmed! Check your email for details.');
+  const handleBookingConfirm = async (passengerDetails: any[], contactInfo: any) => {
+    if (!selectedFlight || !token) return;
+
+    try {
+      const bookingData = {
+        flightId: selectedFlight.id,
+        seats: selectedSeats.map(seatId => {
+          for (const row of selectedFlight.seatLayout) {
+            const seat = row.seats.find(s => s.id === seatId);
+            if (seat) return seat.seatNumber;
+          }
+          return '';
+        }),
+        totalPrice: calculateTotal(),
+        passengerDetails,
+        contactEmail: contactInfo.email,
+        contactPhone: contactInfo.phone,
+      };
+
+      const response = await api.createBooking(bookingData, token);
+      
+      if (response.ok) {
+        const booking = await response.json();
+        
+        // Reset state
+        setSelectedFlight(null);
+        setSelectedSeats([]);
+        setShowBookingModal(false);
+        
+        // Refresh bookings
+        fetchUserBookings();
+        
+        // Show success message
+        alert('Booking confirmed! Check your email for confirmation details.');
+      } else {
+        throw new Error('Booking failed');
+      }
+    } catch (error) {
+      console.error('Error creating booking:', error);
+      alert('Booking failed. Please try again.');
+    }
   };
 
   return (
@@ -124,11 +187,13 @@ export const UserDashboard: React.FC = () => {
               </h2>
               <div className="grid gap-6">
                 {searchResults.map((flight) => (
-                  <FlightCard
-                    key={flight.id}
-                    flight={flight}
-                    onBook={handleFlightSelect}
-                  />
+                  <div key={flight.id} className="space-y-4">
+                    <FlightCard
+                      flight={flight}
+                      onBook={handleFlightSelect}
+                    />
+                    <AIGeneratedDescription flight={flight} />
+                  </div>
                 ))}
               </div>
             </div>
@@ -161,6 +226,10 @@ export const UserDashboard: React.FC = () => {
                     selectedSeats={selectedSeats}
                     onSeatSelect={handleSeatSelect}
                   />
+                  
+                  <div className="mt-6">
+                    <InteractiveMap flight={selectedFlight} />
+                  </div>
                 </div>
 
                 <div>
@@ -223,58 +292,64 @@ export const UserDashboard: React.FC = () => {
           {userBookings.length > 0 ? (
             <div className="grid gap-6">
               {userBookings.map((booking) => {
-                const flight = mockFlights.find(f => f.id === booking.flightId);
+                const flight = searchResults.find(f => f.id === booking.flightId);
                 if (!flight) return null;
 
                 return (
-                  <Card key={booking.id} hover>
-                    <CardContent className="p-6">
-                      <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                            {flight.flightNumber}
-                          </h3>
-                          <p className="text-gray-600 dark:text-gray-400">
-                            {flight.departure} → {flight.arrival}
-                          </p>
-                        </div>
-                        <Badge 
-                          variant={booking.status === 'confirmed' ? 'success' : 'warning'}
-                        >
-                          {booking.status}
-                        </Badge>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                        <div className="flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-gray-400" />
+                  <div key={booking.id} className="space-y-4">
+                    <Card hover>
+                      <CardContent className="p-6">
+                        <div className="flex justify-between items-start mb-4">
                           <div>
-                            <p className="font-medium">{flight.date}</p>
-                            <p className="text-gray-500 dark:text-gray-400">
-                              {flight.departureTime} - {flight.arrivalTime}
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                              {flight.flightNumber}
+                            </h3>
+                            <p className="text-gray-600 dark:text-gray-400">
+                              {flight.departure} → {flight.arrival}
+                            </p>
+                          </div>
+                          <Badge 
+                            variant={booking.status === 'confirmed' ? 'success' : 'warning'}
+                          >
+                            {booking.status}
+                          </Badge>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                          <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-gray-400" />
+                            <div>
+                              <p className="font-medium">{flight.date}</p>
+                              <p className="text-gray-500 dark:text-gray-400">
+                                {flight.departureTime} - {flight.arrivalTime}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <MapPin className="w-4 h-4 text-gray-400" />
+                            <div>
+                              <p className="font-medium">Seats: {booking.seats.join(', ')}</p>
+                              <p className="text-gray-500 dark:text-gray-400">
+                                {booking.passengerDetails.length} passenger(s)
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <p className="font-medium">Total Paid</p>
+                            <p className="text-lg font-bold text-green-600">
+                              ₹{booking.totalPrice.toLocaleString()}
                             </p>
                           </div>
                         </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <MapPin className="w-4 h-4 text-gray-400" />
-                          <div>
-                            <p className="font-medium">Seats: {booking.seats.join(', ')}</p>
-                            <p className="text-gray-500 dark:text-gray-400">
-                              {booking.passengerDetails.length} passenger(s)
-                            </p>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <p className="font-medium">Total Paid</p>
-                          <p className="text-lg font-bold text-green-600">
-                            ₹{booking.totalPrice.toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      </CardContent>
+                    </Card>
+                    
+                    {booking.status === 'confirmed' && (
+                      <QRTicketDownload booking={booking} flight={flight} />
+                    )}
+                  </div>
                 );
               })}
             </div>
