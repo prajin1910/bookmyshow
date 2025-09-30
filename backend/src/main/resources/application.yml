@@ -1,0 +1,40 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  data:
+    mongodb:
+      uri: mongodb+srv://reksitrajan01:8n4SHiaJfCZRrimg@cluster0.mperr.mongodb.net/scenic_airways?retryWrites=true&w=majority
+      database: scenic_airways
+  
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: reksit2005@gmail.com
+    password: vvog gosd mpgj ivmk
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          ssl:
+            trust: smtp.gmail.com
+
+jwt:
+  secret: ScenicAirwaysSecretKeyForJWTTokenGeneration2024
+  expiration: 86400000 # 24 hours
+
+app:
+  admin:
+    username: trilogy
+    password: admin@flights
+    email: admin@scenicairways.com
+
+logging:
+  level:
+    com.scenicairways: DEBUG
+    org.springframework.security: DEBUG
